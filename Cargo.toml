@@ -1,0 +1,57 @@
+[package]
+name = "portscan"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance, secure port scanner with modern features"
+license = "MIT"
+repository = "https://github.com/user/portscan-rs"
+readme = "README.md"
+keywords = ["network", "security", "scanner", "port", "cyberpunk"]
+categories = ["command-line-utilities", "network-programming"]
+
+[dependencies]
+tokio = { version = "1.40", features = ["full"] }
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+socket2 = "0.5"
+pnet = "0.35"
+libc = "0.2"
+indicatif = "0.17"
+colored = "2.1"
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.8"
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ipnet = "2.9"
+dirs = "5.0"
+async-trait = "0.1"
+thiserror = "1.0"
+
+[dev-dependencies]
+tempfile = "3.13"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+[package.metadata.deb]
+maintainer = "PortScan-RS <noreply@example.com>"
+copyright = "2025, PortScan-RS Contributors"
+license-file = ["LICENSE", "4"]
+extended-description = """\
+High-performance, secure port scanner with modern features.
+Supports TCP SYN/Connect/FIN/XMAS/NULL scans, UDP scanning,
+CIDR ranges, multiple output formats, and cyberpunk styling."""
+depends = "$auto"
+section = "net"
+priority = "optional"
+assets = [
+    ["target/release/portscan", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/portscan/", "644"],
+    ["install.sh", "usr/share/doc/portscan/", "755"],
+    ["uninstall.sh", "usr/share/doc/portscan/", "755"],
+]
