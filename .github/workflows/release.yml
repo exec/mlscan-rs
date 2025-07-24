@@ -61,13 +61,24 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gcc-aarch64-linux-gnu musl-tools
         
-    - name: Build binary
+    - name: Configure cross-compilation
+      if: matrix.target == 'aarch64-unknown-linux-gnu'
+      run: |
+        echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+        echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+        
+    - name: Build binary (Unix)
+      if: matrix.os != 'windows-latest'
       run: |
         if [[ "${{ matrix.target }}" == *"musl"* ]]; then
           cargo build --release --target ${{ matrix.target }} --no-default-features
         else
           cargo build --release --target ${{ matrix.target }}
         fi
+        
+    - name: Build binary (Windows)
+      if: matrix.os == 'windows-latest'
+      run: cargo build --release --target ${{ matrix.target }}
         
     - name: Package binary (Unix)
       if: matrix.os != 'windows-latest'
