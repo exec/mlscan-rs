@@ -1,12 +1,12 @@
 [package]
-name = "portscan"
-version = "0.1.0"
+name = "mlscan"
+version = "0.2.0"
 edition = "2021"
-description = "High-performance, secure port scanner with modern features"
+description = "Machine learning-enhanced port scanner with adaptive performance"
 license = "MIT"
-repository = "https://github.com/user/portscan-rs"
+repository = "https://github.com/exec/mlscan-rs"
 readme = "README.md"
-keywords = ["network", "security", "scanner", "port", "cyberpunk"]
+keywords = ["network", "security", "scanner", "port", "machine-learning"]
 categories = ["command-line-utilities", "network-programming"]
 
 [dependencies]
@@ -39,19 +39,19 @@ codegen-units = 1
 opt-level = 3
 
 [package.metadata.deb]
-maintainer = "PortScan-RS <noreply@example.com>"
-copyright = "2025, PortScan-RS Contributors"
+maintainer = "MLScan-RS <noreply@example.com>"
+copyright = "2025, MLScan-RS Contributors"
 license-file = ["LICENSE", "4"]
 extended-description = """\
-High-performance, secure port scanner with modern features.
+Machine learning-enhanced port scanner with adaptive performance.
 Supports TCP SYN/Connect/FIN/XMAS/NULL scans, UDP scanning,
-CIDR ranges, multiple output formats, and cyberpunk styling."""
+CIDR ranges, multiple output formats, and real adaptive learning."""
 depends = "$auto"
 section = "net"
 priority = "optional"
 assets = [
-    ["target/release/portscan", "usr/bin/", "755"],
-    ["README.md", "usr/share/doc/portscan/", "644"],
-    ["install.sh", "usr/share/doc/portscan/", "755"],
-    ["uninstall.sh", "usr/share/doc/portscan/", "755"],
+    ["target/release/mlscan", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/mlscan/", "644"],
+    ["install.sh", "usr/share/doc/mlscan/", "755"],
+    ["uninstall.sh", "usr/share/doc/mlscan/", "755"],
 ]
