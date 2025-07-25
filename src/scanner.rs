@@ -80,18 +80,37 @@ impl Scanner {
         );
         
         let start_time = chrono::Utc::now();
-        let mut host_results = Vec::new();
+        
+        // Create host scanning tasks for parallel execution
+        let host_semaphore = Arc::new(Semaphore::new(self.parallel_hosts));
+        let mut host_tasks = Vec::new();
         
         for target_ip in targets {
-            let host_result = self.scan_single_host(
-                target_ip,
-                &port_list,
-                scan_type,
-                pb.clone()
-            ).await?;
+            let semaphore = host_semaphore.clone();
+            let port_list = port_list.clone();
+            let pb = pb.clone();
+            let scan_type = scan_type;
             
-            host_results.push(host_result);
+            let task = {
+                let mut scanner_clone = Scanner::new(self.rate_limit, self.timeout, self.parallel_hosts);
+                scanner_clone.adaptive_learning = self.adaptive_learning.clone();
+                scanner_clone.service_detector = ServiceDetector::new();
+                
+                tokio::spawn(async move {
+                    let _permit = semaphore.acquire().await.unwrap();
+                    scanner_clone.scan_single_host(target_ip, &port_list, scan_type, pb).await
+                })
+            };
+            
+            host_tasks.push(task);
         }
+        
+        // Wait for all host scans to complete
+        let host_results: Vec<ScanResult> = join_all(host_tasks).await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
         
         pb.finish_with_message("⟦SCAN COMPLETE⟧ Network discovery finished");
         let end_time = chrono::Utc::now();

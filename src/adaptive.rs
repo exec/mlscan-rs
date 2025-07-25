@@ -54,6 +54,7 @@ pub struct ResponsePattern {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct AdaptiveLearning {
     pub network_profiles: HashMap<String, NetworkProfile>,
     pub port_intelligence: HashMap<u16, PortIntelligence>,
@@ -62,7 +63,7 @@ pub struct AdaptiveLearning {
     config_path: PathBuf,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalStats {
     pub total_scans: u32,
     pub total_ports_found: u32,
