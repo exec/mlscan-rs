@@ -24,27 +24,27 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
-            name: portscan-linux-x86_64
+            name: mlscan-linux-x86_64
             
           - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
-            name: portscan-linux-x86_64-musl
+            name: mlscan-linux-x86_64-musl
             
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
-            name: portscan-linux-aarch64
+            name: mlscan-linux-aarch64
             
           - target: x86_64-apple-darwin
             os: macos-latest
-            name: portscan-macos-x86_64
+            name: mlscan-macos-x86_64
             
           - target: aarch64-apple-darwin
             os: macos-latest
-            name: portscan-macos-aarch64
+            name: mlscan-macos-aarch64
             
           - target: x86_64-pc-windows-msvc
             os: windows-latest
-            name: portscan-windows-x86_64
+            name: mlscan-windows-x86_64
             ext: .exe
     
     steps:
@@ -84,13 +84,13 @@ jobs:
       if: matrix.os != 'windows-latest'
       run: |
         cd target/${{ matrix.target }}/release
-        tar -czf ${{ matrix.name }}.tar.gz portscan
+        tar -czf ${{ matrix.name }}.tar.gz mlscan
         
     - name: Package binary (Windows)
       if: matrix.os == 'windows-latest'
       run: |
         cd target/${{ matrix.target }}/release
-        7z a ${{ matrix.name }}.zip portscan.exe
+        7z a ${{ matrix.name }}.zip mlscan.exe
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
