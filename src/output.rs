@@ -153,11 +153,27 @@ impl OutputWriter {
                     "━━━━━━━".truecolor(64, 64, 64)));
                 
                 for port in &open_ports {
-                    let service = get_service_name(port.port);
+                    let service = if let Some(ref service_info) = port.service_detected {
+                        if let Some(ref version) = service_info.version {
+                            format!("{} {}", service_info.name, version)
+                        } else {
+                            service_info.name.clone()
+                        }
+                    } else {
+                        get_service_name(port.port).to_string()
+                    };
+                    
+                    // Add response time if available
+                    let service_display = if let Some(response_time) = port.response_time {
+                        format!("{} ({:.1}ms)", service, response_time)
+                    } else {
+                        service
+                    };
+                    
                     output.push_str(&format!("│ {:<9} {:<13} {:<54} │\n",
                         port.port.to_string().truecolor(255, 255, 255).bold(),
                         "●OPEN".truecolor(0, 255, 65).bold(),
-                        service.truecolor(128, 128, 128)));
+                        service_display.truecolor(128, 128, 128)));
                 }
                 
                 if !filtered_ports.is_empty() && filtered_ports.len() <= 5 {
@@ -282,16 +298,27 @@ impl OutputWriter {
     
     fn format_csv(&self, result: MultiHostScanResult) -> Result<String> {
         let mut csv = String::new();
-        csv.push_str("target,target_ip,port,status,scan_type\n");
+        csv.push_str("target,target_ip,port,status,service,version,response_time_ms,scan_type\n");
         
         for host in &result.hosts {
             for port in &host.ports {
+                let service_name = port.service_detected.as_ref()
+                    .map(|s| s.name.as_str()).unwrap_or("");
+                let service_version = port.service_detected.as_ref()
+                    .and_then(|s| s.version.as_ref().map(|v| v.as_str()))
+                    .unwrap_or("");
+                let response_time = port.response_time
+                    .map(|rt| rt.to_string()).unwrap_or_else(|| "".to_string());
+                    
                 csv.push_str(&format!(
-                    "{},{},{},{},{:?}\n",
+                    "{},{},{},{},{},{},{},{:?}\n",
                     host.target,
                     host.target_ip,
                     port.port,
                     port.status,
+                    service_name,
+                    service_version,
+                    response_time,
                     result.scan_type
                 ));
             }

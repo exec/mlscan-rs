@@ -28,6 +28,16 @@ pub struct MultiHostScanResult {
 pub struct PortResult {
     pub port: u16,
     pub status: PortStatus,
+    pub is_filtered: bool,
+    pub response_time: Option<f64>,
+    pub service_detected: Option<ServiceInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServiceInfo {
+    pub name: String,
+    pub version: Option<String>,
+    pub confidence: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

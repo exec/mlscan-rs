@@ -2,6 +2,7 @@ pub mod tcp;
 mod udp;
 mod results;
 mod discovery;
+mod service_detection;
 
 use anyhow::Result;
 use std::net::IpAddr;
@@ -15,7 +16,8 @@ use crate::cli::ScanType;
 use crate::utils::parse_ports;
 use crate::network::parse_targets;
 use crate::adaptive::{AdaptiveLearning, ScanLearningData, PortScanResult, classify_network};
-pub use results::{ScanResult, PortStatus, PortResult, MultiHostScanResult};
+pub use results::{ScanResult, PortStatus, PortResult, MultiHostScanResult, ServiceInfo};
+use service_detection::ServiceDetector;
 
 /// Check if IP is in private/local range for optimized scanning
 fn is_private_ip(ip: IpAddr) -> bool {
@@ -46,6 +48,7 @@ pub struct Scanner {
     timeout: u64,
     parallel_hosts: usize,
     adaptive_learning: AdaptiveLearning,
+    service_detector: ServiceDetector,
 }
 
 impl Scanner {
@@ -55,6 +58,7 @@ impl Scanner {
             timeout,
             parallel_hosts,
             adaptive_learning: AdaptiveLearning::new(),
+            service_detector: ServiceDetector::new(),
         }
     }
     
@@ -138,6 +142,7 @@ impl Scanner {
             let task = tokio::spawn(async move {
                 let _permit = sem.acquire().await.unwrap();
                 
+                let scan_start = std::time::Instant::now();
                 let result = match scan_type {
                     ScanType::Syn => tcp::syn_scan(target_ip, port, timeout).await,
                     ScanType::Connect => {
@@ -153,6 +158,7 @@ impl Scanner {
                     ScanType::Xmas => tcp::xmas_scan(target_ip, port, timeout).await,
                     ScanType::Null => tcp::null_scan(target_ip, port, timeout).await,
                 };
+                let scan_duration = scan_start.elapsed().as_millis() as f64;
                 
                 pb.inc(1);
                 
@@ -160,15 +166,30 @@ impl Scanner {
                     sleep(Duration::from_millis(rate_limit)).await;
                 }
                 
-                PortResult { port, status: result }
+                PortResult { 
+                    port, 
+                    status: result,
+                    is_filtered: result == PortStatus::Filtered,
+                    response_time: Some(scan_duration),
+                    service_detected: None, // Will be filled in later for open ports
+                }
             });
             
             tasks.push(task);
         }
         
-        let port_results = join_all(tasks).await
+        let mut port_results = join_all(tasks).await
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
+        
+        // Perform service detection on open ports
+        for port_result in &mut port_results {
+            if port_result.status == PortStatus::Open {
+                port_result.service_detected = self.service_detector
+                    .detect_service(target_ip, port_result.port)
+                    .await;
+            }
+        }
         
         let end_time = chrono::Utc::now();
         let scan_duration = scan_start.elapsed();
@@ -182,33 +203,22 @@ impl Scanner {
         for port_result in &port_results {
             let is_open = matches!(port_result.status, PortStatus::Open);
             let is_filtered = matches!(port_result.status, PortStatus::Filtered);
-            let response_time = match port_result.status {
-                PortStatus::Open => {
-                    total_response_time += 50.0; // Estimate for open ports
-                    response_count += 1;
-                    Some(50.0)
-                },
-                PortStatus::Closed => {
-                    total_response_time += 25.0; // Estimate for closed ports
-                    response_count += 1;
-                    Some(25.0)
-                },
-                PortStatus::Filtered => {
-                    timeout_count += 1;
-                    None
-                },
-                PortStatus::Error => {
-                    timeout_count += 1;
-                    None
-                }
-            };
+            
+            // Use actual response times from scanning
+            let response_time = port_result.response_time;
+            if let Some(rt) = response_time {
+                total_response_time += rt;
+                response_count += 1;
+            } else {
+                timeout_count += 1;
+            }
             
             learning_port_results.push(PortScanResult {
                 port: port_result.port,
                 is_open,
                 is_filtered,
                 response_time,
-                service_detected: None, // TODO: Add service detection
+                service_detected: port_result.service_detected.as_ref().map(|s| s.name.clone()),
             });
         }
         
