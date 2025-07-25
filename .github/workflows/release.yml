@@ -42,10 +42,11 @@ jobs:
             os: macos-latest
             name: mlscan-macos-aarch64
             
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            name: mlscan-windows-x86_64
-            ext: .exe
+          # Windows build temporarily disabled due to compilation timeout issues
+          # - target: x86_64-pc-windows-msvc
+          #   os: windows-latest
+          #   name: mlscan-windows-x86_64
+          #   ext: .exe
     
     steps:
     - uses: actions/checkout@v4
