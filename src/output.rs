@@ -121,7 +121,7 @@ impl OutputWriter {
                 total_open_ports += open_ports.len();
                 
                 // Cyberpunk host header with proper alignment
-                const HOST_BOX_WIDTH: usize = 77;
+                const HOST_BOX_WIDTH: usize = 79;
                 
                 output.push_str(&format!("{}\n", 
                     "┌─────────────────────────────────────────────────────────────────────────────┐".truecolor(64, 64, 64)));
