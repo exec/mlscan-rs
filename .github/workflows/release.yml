@@ -146,6 +146,10 @@ jobs:
     - name: Create universal binary
       run: |
         mkdir -p pkg/usr/local/bin
+        # Extract binaries from tar.gz files
+        cd artifacts/mlscan-macos-x86_64 && tar -xzf mlscan-macos-x86_64.tar.gz && cd ../..
+        cd artifacts/mlscan-macos-aarch64 && tar -xzf mlscan-macos-aarch64.tar.gz && cd ../..
+        # Create universal binary
         lipo -create \
           artifacts/mlscan-macos-x86_64/mlscan \
           artifacts/mlscan-macos-aarch64/mlscan \
