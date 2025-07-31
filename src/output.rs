@@ -5,7 +5,7 @@ use anyhow::Result;
 use colored::*;
 
 use crate::cli::OutputFormat;
-use crate::scanner::{MultiHostScanResult, ScanResult, PortStatus};
+use crate::scanner::results::{MultiHostScanResult, PortStatus};
 
 pub struct OutputWriter {
     format: OutputFormat,

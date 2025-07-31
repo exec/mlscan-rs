@@ -7,7 +7,7 @@ use pnet::transport::{transport_channel, TransportChannelType::Layer4};
 use pnet::transport::tcp_packet_iter;
 use anyhow::Result;
 
-use super::PortStatus;
+use crate::scanner::results::PortStatus;
 
 pub async fn connect_scan(target: IpAddr, port: u16, timeout_ms: u64) -> PortStatus {
     let addr = SocketAddr::new(target, port);

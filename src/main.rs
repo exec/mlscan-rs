@@ -4,13 +4,10 @@ mod output;
 mod utils;
 mod network;
 mod adaptive;
-mod config;
-mod plugins;
 
 use anyhow::Result;
 use clap::Parser;
 use colored::*;
-use std::io::{self, Write};
 use tracing_subscriber;
 
 use crate::cli::Cli;
@@ -26,27 +23,36 @@ async fn main() -> Result<()> {
     // No legal BS, just pure scanning action! 🔥
     
     let mut scanner = Scanner::new(
-        cli.rate_limit,
-        cli.timeout,
-        cli.parallel_hosts,
+        cli.rate_limit.unwrap_or(0), // 0 = ML optimized
+        cli.timeout.unwrap_or(0),    // 0 = ML adaptive
+        cli.parallel_hosts.unwrap_or(0), // 0 = ML optimized
     );
     
     let output_writer = OutputWriter::new(cli.output_format, cli.output_file)?;
     
     // Check if target is provided
     if cli.target.is_empty() {
-        eprintln!("{}", "Error: No target specified. Use -t to specify a target.".red());
-        eprintln!("Example: mlscan -t 192.168.1.1");
+        eprintln!("{}", "Error: No target specified.".red());
+        eprintln!("Example: mlscan 192.168.1.1");
         eprintln!("Run 'mlscan --help' for more information.");
         std::process::exit(1);
     }
     
     let target_spec = cli.target.join(",");
-    let ports_spec = cli.ports.join(",");
+    let ports_spec = match cli.ports {
+        Some(ports) => {
+            if ports.len() == 1 && ports[0] == "-" {
+                "1-65535".to_string() // -p- means all ports
+            } else {
+                ports.join(",")
+            }
+        },
+        None => "1-65535".to_string(), // Default: scan all ports
+    };
     let results = scanner.scan(
         &target_spec,
         &ports_spec,
-        cli.scan_type,
+        cli.scan_type.unwrap_or(crate::cli::ScanType::Syn),
     ).await?;
     
     output_writer.write(results)?;

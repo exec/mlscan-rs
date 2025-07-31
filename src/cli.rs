@@ -2,28 +2,28 @@ use clap::{Parser, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "portscan")]
-#[command(author = "Modern Port Scanner")]
-#[command(version = "0.1.0")]
-#[command(about = "High-performance, secure port scanner with modern features", long_about = None)]
+#[command(name = "mlscan")]
+#[command(author = "MLScan-RS")]
+#[command(version = "0.3.0")]
+#[command(about = "Machine learning-enhanced port scanner with adaptive performance", long_about = None)]
 pub struct Cli {
-    #[arg(short, long, help = "Target IP, hostname, IP range (IP1-IP2), or CIDR (192.168.1.0/24). Can be specified multiple times.")]
+    #[arg(help = "Target IP, hostname, IP range (IP1-IP2), or CIDR (192.168.1.0/24). Can be specified multiple times.")]
     pub target: Vec<String>,
     
-    #[arg(short, long, default_value = "common", help = "Ports to scan (e.g., 80, 1-1000, 80,443,8080, top100, common, web, mail, db). Can be specified multiple times.")]
-    pub ports: Vec<String>,
+    #[arg(short, long, help = "Ports to scan: -p22,80,443 or -p1-1000 or -p- for all ports. Defaults to all ports.")]
+    pub ports: Option<Vec<String>>,
     
-    #[arg(short = 'T', long, value_enum, default_value = "syn", help = "Scan type")]
-    pub scan_type: ScanType,
+    #[arg(short = 's', value_enum, help = "Scan technique (default: SYN scan)")]
+    pub scan_type: Option<ScanType>,
     
-    #[arg(short, long, default_value = "100", help = "Rate limit in milliseconds between packets")]
-    pub rate_limit: u64,
+    #[arg(long, help = "Send packets no faster than <rate> per second (default: ML optimized)")]
+    pub rate_limit: Option<u64>,
     
-    #[arg(long, default_value = "1000", help = "Timeout in milliseconds for each port")]
-    pub timeout: u64,
+    #[arg(long, help = "Give up on target after this long (default: ML adaptive)")]
+    pub timeout: Option<u64>,
     
-    #[arg(long, default_value = "10", help = "Number of parallel host scans")]
-    pub parallel_hosts: usize,
+    #[arg(long, help = "Probe parallelization: numprobes. Higher is faster but less accurate (default: ML optimized)")]
+    pub parallel_hosts: Option<usize>,
     
     #[arg(short = 'o', long, value_enum, default_value = "human", help = "Output format")]
     pub output_format: OutputFormat,
@@ -37,8 +37,17 @@ pub struct Cli {
     #[arg(short, long, help = "Enable verbose output")]
     pub verbose: bool,
 
-    #[arg(long, help = "Skip host discovery - scan all targets")]
+    #[arg(short = 'P', help = "Skip host discovery (assume all hosts up)")]
     pub skip_ping: bool,
+    
+    #[arg(short = 'O', help = "Enable OS detection")]
+    pub os_detection: bool,
+    
+    #[arg(short = 'A', help = "Enable OS detection, version detection, script scanning, and traceroute")]
+    pub aggressive: bool,
+    
+    #[arg(short = 'T', value_name = "TIMING", help = "Set timing template (0-5) for speed/stealth")]
+    pub timing: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum, serde::Serialize, serde::Deserialize, PartialEq)]

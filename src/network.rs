@@ -1,6 +1,6 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr};
 use anyhow::{Result, anyhow};
-use ipnet::{Ipv4Net, Ipv6Net, IpNet};
+use ipnet::IpNet;
 
 pub fn parse_targets(target_spec: &str) -> Result<Vec<IpAddr>> {
     let mut targets = Vec::new();

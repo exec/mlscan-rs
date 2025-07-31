@@ -2,7 +2,7 @@ use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::time::Duration;
 use anyhow::Result;
 
-use super::PortStatus;
+use crate::scanner::results::PortStatus;
 
 pub async fn udp_scan(target: IpAddr, port: u16, timeout_ms: u64) -> PortStatus {
     tokio::task::spawn_blocking(move || {

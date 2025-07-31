@@ -1,0 +1,723 @@
+use crate::scanner::ml_classifier::{ServiceFeatures, TrainingExample, ServiceClassification};
+use crate::scanner::response_analyzer::{NetworkResponse, ProbeSession, ResponseAnalyzer};
+use std::collections::HashMap;
+use std::net::IpAddr;
+use std::time::{Duration, SystemTime};
+use smartcore::linalg::basic::matrix::DenseMatrix;
+use smartcore::cluster::{kmeans::KMeans, dbscan::DBSCAN};
+use smartcore::preprocessing::StandardScaler;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthFingerprint {
+    pub response_pattern: String,
+    pub error_code: Option<String>,
+    pub timing_signature: f64,
+    pub response_structure: String,
+    pub protocol_indicators: Vec<String>,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthCluster {
+    pub cluster_id: usize,
+    pub service_type: String,
+    pub characteristic_responses: Vec<String>,
+    pub typical_timing: f64,
+    pub confidence: f64,
+    pub sample_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthProbeResult {
+    pub target: IpAddr,
+    pub port: u16,
+    pub probe_type: String,
+    pub response: NetworkResponse,
+    pub features: AuthFeatures,
+    pub timestamp: SystemTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthFeatures {
+    // Response content features
+    pub response_length: f64,
+    pub has_error_code: f64,
+    pub has_username_reference: f64,
+    pub has_password_reference: f64,
+    pub has_auth_method_info: f64,
+    
+    // Timing features  
+    pub response_time_ms: f64,
+    pub quick_rejection: f64,
+    pub delayed_response: f64,
+    
+    // Protocol features
+    pub http_auth_headers: f64,
+    pub ssh_negotiation: f64,
+    pub ftp_codes: f64,
+    pub smtp_codes: f64,
+    pub generic_protocol: f64,
+    
+    // Error pattern features
+    pub permission_denied: f64,
+    pub invalid_credentials: f64,
+    pub malformed_request: f64,
+    pub connection_closed: f64,
+    pub service_unavailable: f64,
+    
+    // Authentication complexity
+    pub multi_step_auth: f64,
+    pub challenge_response: f64,
+    pub requires_cert: f64,
+    pub supports_anonymous: f64,
+}
+
+pub struct AuthFingerprinter {
+    // ML clustering models
+    kmeans_model: Option<KMeans<f64>>,
+    dbscan_model: Option<DBSCAN<f64>>,
+    scaler: Option<StandardScaler<f64>>,
+    
+    // Historical auth probe data
+    auth_results: Vec<AuthProbeResult>,
+    
+    // Discovered clusters
+    service_clusters: HashMap<usize, AuthCluster>,
+    
+    // Known authentication patterns
+    auth_signatures: HashMap<String, Vec<String>>,
+    
+    // Response analyzer for feature extraction
+    response_analyzer: ResponseAnalyzer,
+    
+    // Configuration
+    min_cluster_size: usize,
+    confidence_threshold: f64,
+}
+
+impl Default for AuthFeatures {
+    fn default() -> Self {
+        AuthFeatures {
+            response_length: 0.0,
+            has_error_code: 0.0,
+            has_username_reference: 0.0,
+            has_password_reference: 0.0,
+            has_auth_method_info: 0.0,
+            response_time_ms: 0.0,
+            quick_rejection: 0.0,
+            delayed_response: 0.0,
+            http_auth_headers: 0.0,
+            ssh_negotiation: 0.0,
+            ftp_codes: 0.0,
+            smtp_codes: 0.0,
+            generic_protocol: 0.0,
+            permission_denied: 0.0,
+            invalid_credentials: 0.0,
+            malformed_request: 0.0,
+            connection_closed: 0.0,
+            service_unavailable: 0.0,
+            multi_step_auth: 0.0,
+            challenge_response: 0.0,
+            requires_cert: 0.0,
+            supports_anonymous: 0.0,
+        }
+    }
+}
+
+impl AuthFeatures {
+    pub fn to_vector(&self) -> Vec<f64> {
+        vec![
+            self.response_length,
+            self.has_error_code,
+            self.has_username_reference,
+            self.has_password_reference,
+            self.has_auth_method_info,
+            self.response_time_ms,
+            self.quick_rejection,
+            self.delayed_response,
+            self.http_auth_headers,
+            self.ssh_negotiation,
+            self.ftp_codes,
+            self.smtp_codes,
+            self.generic_protocol,
+            self.permission_denied,
+            self.invalid_credentials,
+            self.malformed_request,
+            self.connection_closed,
+            self.service_unavailable,
+            self.multi_step_auth,
+            self.challenge_response,
+            self.requires_cert,
+            self.supports_anonymous,
+        ]
+    }
+}
+
+impl AuthFingerprinter {
+    pub fn new() -> Self {
+        let mut fingerprinter = Self {
+            kmeans_model: None,
+            dbscan_model: None,
+            scaler: None,
+            auth_results: Vec::new(),
+            service_clusters: HashMap::new(),
+            auth_signatures: HashMap::new(),
+            response_analyzer: ResponseAnalyzer::new(),
+            min_cluster_size: 3,
+            confidence_threshold: 0.6,
+        };
+        
+        fingerprinter.initialize_auth_signatures();
+        fingerprinter
+    }
+    
+    fn initialize_auth_signatures(&mut self) {
+        // HTTP authentication signatures
+        self.auth_signatures.insert("HTTP".to_string(), vec![
+            "401 Unauthorized".to_string(),
+            "WWW-Authenticate".to_string(),
+            "Basic realm".to_string(),
+            "Authorization Required".to_string(),
+            "Access Denied".to_string(),
+        ]);
+        
+        // SSH authentication signatures
+        self.auth_signatures.insert("SSH".to_string(), vec![
+            "Permission denied".to_string(),
+            "Authentication failed".to_string(),
+            "Invalid user".to_string(),
+            "password:".to_string(),
+            "SSH-2.0".to_string(),
+        ]);
+        
+        // FTP authentication signatures
+        self.auth_signatures.insert("FTP".to_string(), vec![
+            "530 Login incorrect".to_string(),
+            "331 Password required".to_string(),
+            "User".to_string(),
+            "530 Permission denied".to_string(),
+            "220".to_string(),
+        ]);
+        
+        // SMTP authentication signatures
+        self.auth_signatures.insert("SMTP".to_string(), vec![
+            "535 Authentication failed".to_string(),
+            "534 Authentication mechanism".to_string(),
+            "AUTH LOGIN".to_string(),
+            "250-AUTH".to_string(),
+            "220".to_string(),
+        ]);
+        
+        // Database authentication signatures
+        self.auth_signatures.insert("MySQL".to_string(), vec![
+            "Access denied for user".to_string(),
+            "mysql_native_password".to_string(),
+            "Got packets out of order".to_string(),
+        ]);
+        
+        self.auth_signatures.insert("PostgreSQL".to_string(), vec![
+            "FATAL: password authentication failed".to_string(),
+            "FATAL: database".to_string(),
+            "no pg_hba.conf entry".to_string(),
+        ]);
+    }
+    
+    pub async fn probe_authentication_patterns(
+        &mut self, 
+        target: IpAddr, 
+        port: u16
+    ) -> AuthFingerprint {
+        println!("🔐 Analyzing authentication patterns for {}:{}", target, port);
+        
+        let mut probe_results = Vec::new();
+        
+        // Test different authentication scenarios
+        let long_username = "a".repeat(1000);
+        let auth_probes = vec![
+            ("invalid_creds", "testuser", "wrongpass"),
+            ("empty_creds", "", ""),
+            ("malformed_user", "test\x00user", "password"),
+            ("long_username", &long_username, "password"),
+            ("sql_injection", "admin'; DROP TABLE users; --", "password"),
+            ("common_creds", "admin", "admin"),
+        ];
+        
+        for (probe_name, username, password) in auth_probes {
+            if let Some(result) = self.execute_auth_probe(target, port, probe_name, username, password).await {
+                probe_results.push(result);
+            }
+            
+            // Small delay between probes to avoid overwhelming the service
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        
+        // Analyze results and extract fingerprint
+        self.analyze_auth_patterns(&probe_results)
+    }
+    
+    async fn execute_auth_probe(
+        &self,
+        target: IpAddr,
+        port: u16,
+        probe_type: &str,
+        username: &str,
+        password: &str,
+    ) -> Option<AuthProbeResult> {
+        let start_time = SystemTime::now();
+        
+        // Try different protocols based on port
+        let response = match port {
+            21 => self.probe_ftp_auth(target, port, username, password).await,
+            22 => self.probe_ssh_auth(target, port, username, password).await,
+            25 | 587 => self.probe_smtp_auth(target, port, username, password).await,
+            80 | 8080 | 443 | 8443 => self.probe_http_auth(target, port, username, password).await,
+            3306 => self.probe_mysql_auth(target, port, username, password).await,
+            5432 => self.probe_postgresql_auth(target, port, username, password).await,
+            _ => self.probe_generic_auth(target, port, username, password).await,
+        };
+        
+        if let Some(net_response) = response {
+            // Extract authentication-specific features
+            let features = self.extract_auth_features(&net_response);
+            
+            Some(AuthProbeResult {
+                target,
+                port,
+                probe_type: probe_type.to_string(),
+                response: net_response,
+                features,
+                timestamp: start_time,
+            })
+        } else {
+            None
+        }
+    }
+    
+    async fn probe_http_auth(&self, target: IpAddr, port: u16, username: &str, password: &str) -> Option<NetworkResponse> {
+        use base64::prelude::*;
+        let auth = BASE64_STANDARD.encode(format!("{}:{}", username, password));
+        let request = format!(
+            "GET / HTTP/1.1\r\nHost: {}\r\nAuthorization: Basic {}\r\nUser-Agent: MLScan-Auth\r\n\r\n",
+            target, auth
+        );
+        
+        self.send_tcp_probe(target, port, request.as_bytes()).await
+    }
+    
+    async fn probe_ftp_auth(&self, target: IpAddr, port: u16, username: &str, password: &str) -> Option<NetworkResponse> {
+        // FTP requires a more complex handshake
+        let addr = std::net::SocketAddr::new(target, port);
+        let start = SystemTime::now();
+        
+        match tokio::time::timeout(Duration::from_secs(5), async {
+            let mut stream = tokio::net::TcpStream::connect(addr).await?;
+            
+            // Read welcome message
+            let mut buffer = vec![0; 1024];
+            tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await?;
+            
+            // Send USER command
+            let user_cmd = format!("USER {}\r\n", username);
+            tokio::io::AsyncWriteExt::write_all(&mut stream, user_cmd.as_bytes()).await?;
+            buffer.fill(0);
+            tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await?;
+            
+            // Send PASS command
+            let pass_cmd = format!("PASS {}\r\n", password);
+            tokio::io::AsyncWriteExt::write_all(&mut stream, pass_cmd.as_bytes()).await?;
+            buffer.fill(0);
+            let bytes_read = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await?;
+            buffer.truncate(bytes_read);
+            
+            Ok::<Vec<u8>, tokio::io::Error>(buffer)
+        }).await {
+            Ok(Ok(data)) => Some(NetworkResponse {
+                data,
+                response_time: start.elapsed().unwrap_or_default(),
+                connection_successful: true,
+                connection_reset: false,
+                timeout_occurred: false,
+                error_message: None,
+            }),
+            _ => None,
+        }
+    }
+    
+    async fn probe_ssh_auth(&self, target: IpAddr, port: u16, _username: &str, _password: &str) -> Option<NetworkResponse> {
+        // For SSH, we can only get the banner without implementing full protocol
+        let banner_probe = b"SSH-2.0-MLScan-Auth\r\n";
+        self.send_tcp_probe(target, port, banner_probe).await
+    }
+    
+    async fn probe_smtp_auth(&self, target: IpAddr, port: u16, username: &str, password: &str) -> Option<NetworkResponse> {
+        use base64::prelude::*;
+        let auth_plain = BASE64_STANDARD.encode(format!("\0{}\0{}", username, password));
+        let commands = format!(
+            "EHLO mlscan.local\r\nAUTH PLAIN {}\r\nQUIT\r\n",
+            auth_plain
+        );
+        
+        self.send_tcp_probe(target, port, commands.as_bytes()).await
+    }
+    
+    async fn probe_mysql_auth(&self, _target: IpAddr, _port: u16, _username: &str, _password: &str) -> Option<NetworkResponse> {
+        // MySQL has a complex binary protocol, so we'll just connect and read the handshake
+        // In a full implementation, we'd implement the MySQL authentication protocol
+        None
+    }
+    
+    async fn probe_postgresql_auth(&self, _target: IpAddr, _port: u16, _username: &str, _password: &str) -> Option<NetworkResponse> {
+        // PostgreSQL has a specific startup message format
+        // For now, we'll just attempt a connection
+        None
+    }
+    
+    async fn probe_generic_auth(&self, target: IpAddr, port: u16, username: &str, password: &str) -> Option<NetworkResponse> {
+        // Try a generic auth probe that might work with various protocols
+        let probe = format!("USER {}\r\nPASS {}\r\n", username, password);
+        self.send_tcp_probe(target, port, probe.as_bytes()).await
+    }
+    
+    async fn send_tcp_probe(&self, target: IpAddr, port: u16, data: &[u8]) -> Option<NetworkResponse> {
+        let addr = std::net::SocketAddr::new(target, port);
+        let start = SystemTime::now();
+        
+        match tokio::time::timeout(Duration::from_secs(5), async {
+            let mut stream = tokio::net::TcpStream::connect(addr).await?;
+            
+            if !data.is_empty() {
+                tokio::io::AsyncWriteExt::write_all(&mut stream, data).await?;
+            }
+            
+            let mut buffer = vec![0; 4096];
+            let bytes_read = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await?;
+            buffer.truncate(bytes_read);
+            
+            Ok::<Vec<u8>, tokio::io::Error>(buffer)
+        }).await {
+            Ok(Ok(response_data)) => Some(NetworkResponse {
+                data: response_data,
+                response_time: start.elapsed().unwrap_or_default(),
+                connection_successful: true,
+                connection_reset: false,
+                timeout_occurred: false,
+                error_message: None,
+            }),
+            Ok(Err(e)) => Some(NetworkResponse {
+                data: Vec::new(),
+                response_time: start.elapsed().unwrap_or_default(),
+                connection_successful: false,
+                connection_reset: e.kind() == std::io::ErrorKind::ConnectionReset,
+                timeout_occurred: false,
+                error_message: Some(e.to_string()),
+            }),
+            Err(_) => Some(NetworkResponse {
+                data: Vec::new(),
+                response_time: start.elapsed().unwrap_or_default(),
+                connection_successful: false,
+                connection_reset: false,
+                timeout_occurred: true,
+                error_message: Some("Timeout".to_string()),
+            }),
+        }
+    }
+    
+    fn extract_auth_features(&self, response: &NetworkResponse) -> AuthFeatures {
+        let mut features = AuthFeatures::default();
+        
+        features.response_length = response.data.len() as f64;
+        features.response_time_ms = response.response_time.as_millis() as f64;
+        
+        // Timing classification
+        let time_ms = features.response_time_ms;
+        features.quick_rejection = if time_ms < 50.0 { 1.0 } else { 0.0 };
+        features.delayed_response = if time_ms > 1000.0 { 1.0 } else { 0.0 };
+        
+        if !response.data.is_empty() {
+            let text = String::from_utf8_lossy(&response.data).to_lowercase();
+            
+            // Content analysis
+            features.has_error_code = if text.contains("error") || 
+                                        text.contains("401") || 
+                                        text.contains("403") || 
+                                        text.contains("530") ||
+                                        text.contains("535") { 1.0 } else { 0.0 };
+            
+            features.has_username_reference = if text.contains("user") || 
+                                               text.contains("login") { 1.0 } else { 0.0 };
+            
+            features.has_password_reference = if text.contains("password") || 
+                                               text.contains("pass") { 1.0 } else { 0.0 };
+            
+            // Protocol detection
+            features.http_auth_headers = if text.contains("www-authenticate") || 
+                                          text.contains("authorization") { 1.0 } else { 0.0 };
+            
+            features.ssh_negotiation = if text.contains("ssh-") || 
+                                        text.contains("diffie-hellman") { 1.0 } else { 0.0 };
+            
+            features.ftp_codes = if text.contains("220") || 
+                                  text.contains("331") || 
+                                  text.contains("530") { 1.0 } else { 0.0 };
+            
+            features.smtp_codes = if text.contains("250") || 
+                                   text.contains("535") || 
+                                   text.contains("auth") { 1.0 } else { 0.0 };
+            
+            // Error pattern analysis
+            features.permission_denied = if text.contains("permission denied") || 
+                                          text.contains("access denied") { 1.0 } else { 0.0 };
+            
+            features.invalid_credentials = if text.contains("invalid") || 
+                                            text.contains("incorrect") || 
+                                            text.contains("authentication failed") { 1.0 } else { 0.0 };
+            
+            features.malformed_request = if text.contains("malformed") || 
+                                          text.contains("bad request") || 
+                                          text.contains("syntax error") { 1.0 } else { 0.0 };
+        }
+        
+        // Connection status
+        features.connection_closed = if response.connection_reset { 1.0 } else { 0.0 };
+        
+        features
+    }
+    
+    fn analyze_auth_patterns(&mut self, probe_results: &[AuthProbeResult]) -> AuthFingerprint {
+        if probe_results.is_empty() {
+            return AuthFingerprint {
+                response_pattern: "no_response".to_string(),
+                error_code: None,
+                timing_signature: 0.0,
+                response_structure: "empty".to_string(),
+                protocol_indicators: Vec::new(),
+                confidence: 0.0,
+            };
+        }
+        
+        // Store results for clustering
+        self.auth_results.extend(probe_results.iter().cloned());
+        
+        // Perform clustering if we have enough data
+        if self.auth_results.len() >= 20 {
+            if let Err(e) = self.update_clusters() {
+                eprintln!("⚠️ Clustering failed: {}", e);
+            }
+        }
+        
+        // Analyze current probe results
+        let mut protocol_indicators = Vec::new();
+        let mut timing_sum = 0.0;
+        let mut combined_response = String::new();
+        
+        for result in probe_results {
+            timing_sum += result.features.response_time_ms;
+            
+            let response_text = String::from_utf8_lossy(&result.response.data);
+            combined_response.push_str(&response_text);
+            
+            // Identify protocol indicators  
+            if result.features.http_auth_headers > 0.0 {
+                protocol_indicators.push("HTTP".to_string());
+            }
+            if result.features.ssh_negotiation > 0.0 {
+                protocol_indicators.push("SSH".to_string());
+            }
+            if result.features.ftp_codes > 0.0 {
+                protocol_indicators.push("FTP".to_string());
+            }
+            if result.features.smtp_codes > 0.0 {
+                protocol_indicators.push("SMTP".to_string());
+            }
+        }
+        
+        protocol_indicators.sort();
+        protocol_indicators.dedup();
+        
+        // Determine response pattern
+        let response_pattern = if combined_response.contains("401") {
+            "http_unauthorized".to_string()
+        } else if combined_response.contains("permission denied") {
+            "permission_denied".to_string()
+        } else if combined_response.contains("530") {
+            "ftp_login_failed".to_string()
+        } else if combined_response.contains("authentication failed") {
+            "auth_failed".to_string()
+        } else if combined_response.is_empty() {
+            "connection_only".to_string()
+        } else {
+            "unknown_pattern".to_string()
+        };
+        
+        let avg_timing = timing_sum / probe_results.len() as f64;
+        
+        // Calculate confidence based on consistency and known patterns
+        let confidence = self.calculate_auth_confidence(&response_pattern, &protocol_indicators, avg_timing);
+        
+        AuthFingerprint {
+            response_pattern,
+            error_code: self.extract_primary_error_code(&combined_response),
+            timing_signature: avg_timing,
+            response_structure: self.analyze_response_structure(&combined_response),
+            protocol_indicators,
+            confidence,
+        }
+    }
+    
+    fn update_clusters(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("🔄 Updating authentication pattern clusters...");
+        
+        // Prepare feature matrix
+        let features: Vec<Vec<f64>> = self.auth_results
+            .iter()
+            .map(|result| result.features.to_vector())
+            .collect();
+        
+        let feature_matrix = DenseMatrix::from_2d_vec(&features);
+        
+        // Apply K-means clustering
+        let kmeans = KMeans::fit(&feature_matrix, 5, Default::default())?;
+        let cluster_labels = kmeans.predict(&feature_matrix)?;
+        
+        // Analyze clusters and assign service types
+        self.analyze_clusters(&cluster_labels);
+        self.kmeans_model = Some(kmeans);
+        
+        Ok(())
+    }
+    
+    fn analyze_clusters(&mut self, cluster_labels: &[usize]) {
+        let mut cluster_data: HashMap<usize, Vec<&AuthProbeResult>> = HashMap::new();
+        
+        // Group results by cluster
+        for (i, &cluster_id) in cluster_labels.iter().enumerate() {
+            if let Some(result) = self.auth_results.get(i) {
+                cluster_data.entry(cluster_id).or_default().push(result);
+            }
+        }
+        
+        // Analyze each cluster
+        for (cluster_id, results) in cluster_data {
+            if results.len() < self.min_cluster_size {
+                continue;
+            }
+            
+            let service_type = self.determine_cluster_service_type(&results);
+            let characteristic_responses = self.extract_characteristic_responses(&results);
+            let typical_timing = results.iter()
+                .map(|r| r.features.response_time_ms)
+                .sum::<f64>() / results.len() as f64;
+            
+            let cluster = AuthCluster {
+                cluster_id,
+                service_type,
+                characteristic_responses,
+                typical_timing,
+                confidence: 0.8, // Based on cluster consistency
+                sample_count: results.len(),
+            };
+            
+            self.service_clusters.insert(cluster_id, cluster);
+        }
+        
+        println!("📊 Updated {} authentication clusters", self.service_clusters.len());
+    }
+    
+    fn determine_cluster_service_type(&self, results: &[&AuthProbeResult]) -> String {
+        // Count protocol indicators across cluster
+        let mut protocol_counts = HashMap::new();
+        
+        for result in results {
+            let features = &result.features;
+            
+            if features.http_auth_headers > 0.0 {
+                *protocol_counts.entry("HTTP".to_string()).or_insert(0) += 1;
+            }
+            if features.ssh_negotiation > 0.0 {
+                *protocol_counts.entry("SSH".to_string()).or_insert(0) += 1;
+            }
+            if features.ftp_codes > 0.0 {
+                *protocol_counts.entry("FTP".to_string()).or_insert(0) += 1;
+            }
+            if features.smtp_codes > 0.0 {
+                *protocol_counts.entry("SMTP".to_string()).or_insert(0) += 1;
+            }
+        }
+        
+        // Return most common protocol
+        protocol_counts.into_iter()
+            .max_by_key(|&(_, count)| count)
+            .map(|(protocol, _)| protocol)
+            .unwrap_or_else(|| "Unknown".to_string())
+    }
+    
+    fn extract_characteristic_responses(&self, results: &[&AuthProbeResult]) -> Vec<String> {
+        let mut responses = Vec::new();
+        
+        for result in results.iter().take(3) { // Take first 3 as examples
+            let response_text = String::from_utf8_lossy(&result.response.data);
+            if !response_text.trim().is_empty() && response_text.len() < 200 {
+                responses.push(response_text.trim().to_string());
+            }
+        }
+        
+        responses
+    }
+    
+    fn extract_primary_error_code(&self, response: &str) -> Option<String> {
+        if response.contains("401") {
+            Some("401".to_string())
+        } else if response.contains("403") {
+            Some("403".to_string())
+        } else if response.contains("530") {
+            Some("530".to_string())
+        } else if response.contains("535") {
+            Some("535".to_string())
+        } else {
+            None
+        }
+    }
+    
+    fn analyze_response_structure(&self, response: &str) -> String {
+        if response.starts_with("HTTP/") {
+            "http_response".to_string()
+        } else if response.contains("220") || response.contains("331") {
+            "ftp_response".to_string()
+        } else if response.contains("SSH-") {
+            "ssh_banner".to_string()
+        } else if response.len() < 10 {
+            "minimal".to_string()
+        } else if response.lines().count() > 5 {
+            "multiline".to_string()
+        } else {
+            "single_line".to_string()
+        }
+    }
+    
+    fn calculate_auth_confidence(&self, pattern: &str, indicators: &[String], timing: f64) -> f64 {
+        let mut confidence = 0.0;
+        
+        // Pattern recognition confidence
+        match pattern {
+            "http_unauthorized" | "permission_denied" | "ftp_login_failed" => confidence += 0.4,
+            "auth_failed" => confidence += 0.3,
+            "connection_only" => confidence += 0.1,
+            _ => confidence += 0.0,
+        }
+        
+        // Protocol indicator confidence
+        confidence += indicators.len() as f64 * 0.2;
+        
+        // Timing consistency (reasonable response times boost confidence)
+        if timing > 10.0 && timing < 5000.0 {
+            confidence += 0.2;
+        }
+        
+        confidence.min(1.0)
+    }
+    
+    pub fn get_cluster_summary(&self) -> Vec<&AuthCluster> {
+        self.service_clusters.values().collect()
+    }
+}
