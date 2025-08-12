@@ -10,7 +10,7 @@ pub struct Cli {
     #[arg(help = "Target IP, hostname, IP range (IP1-IP2), or CIDR (192.168.1.0/24). Can be specified multiple times.")]
     pub target: Vec<String>,
     
-    #[arg(short, long, help = "Ports to scan: -p22,80,443 or -p1-1000 or -p- for all ports. Defaults to all ports.")]
+    #[arg(short, long, help = "Ports to scan: -p22,80,443 or -p1-1000 or -p- for all ports. Defaults to 1-1000.")]
     pub ports: Option<Vec<String>>,
     
     #[arg(short = 's', value_enum, help = "Scan technique (default: SYN scan)")]

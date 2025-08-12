@@ -5,9 +5,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 
 use crate::scanner::results::ServiceInfo;
+use crate::scanner::parallel_detector::ParallelProtocolDetector;
+use crate::scanner::adaptive_service_detector::AdaptiveServiceDetector;
 
 pub struct ServiceDetector {
     service_probes: HashMap<u16, Vec<ServiceProbe>>,
+    parallel_detector: ParallelProtocolDetector,
+    adaptive_detector: AdaptiveServiceDetector,
 }
 
 #[derive(Clone)]
@@ -22,6 +26,8 @@ impl ServiceDetector {
     pub fn new() -> Self {
         let mut detector = Self {
             service_probes: HashMap::new(),
+            parallel_detector: ParallelProtocolDetector::new(),
+            adaptive_detector: AdaptiveServiceDetector::new(),
         };
         detector.load_default_probes();
         detector
@@ -113,21 +119,27 @@ impl ServiceDetector {
     }
     
     pub async fn detect_service(&self, target: IpAddr, port: u16) -> Option<ServiceInfo> {
-        // Get probes for this specific port, or try generic probes
-        let probes = if let Some(port_probes) = self.service_probes.get(&port) {
-            port_probes
-        } else {
-            // For unknown ports, try common service detection patterns
-            return self.generic_service_detection(target, port).await;
-        };
-        
-        for probe in probes {
-            if let Some(service_info) = self.try_probe(target, port, probe).await {
-                return Some(service_info);
+        // First, try traditional probe-based detection for known ports (faster)
+        if let Some(port_probes) = self.service_probes.get(&port) {
+            for probe in port_probes {
+                if let Some(service_info) = self.try_probe(target, port, probe).await {
+                    return Some(service_info);
+                }
             }
         }
         
-        None
+        // Then try parallel protocol detection for faster results
+        if let Some(service_info) = self.parallel_detector.detect_service_parallel(target, port).await {
+            return Some(service_info);
+        }
+        
+        // For unknown ports or failed detection, use adaptive service detection
+        if let Some(service_info) = self.adaptive_detector.detect_service_adaptive(target, port).await {
+            return Some(service_info);
+        }
+        
+        // Final fallback to generic service detection patterns
+        self.generic_service_detection(target, port).await
     }
     
     async fn try_probe(&self, target: IpAddr, port: u16, probe: &ServiceProbe) -> Option<ServiceInfo> {

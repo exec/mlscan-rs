@@ -7,12 +7,8 @@ use serde::{Deserialize, Serialize};
 
 // Import our modular protocol detectors
 use super::protocol_detectors::{
-    ProtocolDetector, ProtocolDetectionResult,
+    ProtocolDetector,
     database_detectors::*,
-    messaging_detectors::*,
-    web_detectors::*,
-    system_detectors::*,
-    development_detectors::*,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1162,34 +1158,38 @@ impl MLResponseClassifier {
                 Box::new(RedisDetector),
             ],
             messaging_detectors: vec![
-                Box::new(MQTTDetector),
-                Box::new(RabbitMQDetector),
-                Box::new(KafkaDetector),
-                Box::new(ZookeeperDetector),
+                // TODO: Implement these detectors
+                // Box::new(MQTTDetector),
+                // Box::new(RabbitMQDetector),
+                // Box::new(KafkaDetector),
+                // Box::new(ZookeeperDetector),
             ],
             web_detectors: vec![
-                Box::new(HTTPDetector),
-                Box::new(DockerRegistryDetector),
-                Box::new(PrometheusDetector),
-                Box::new(GrafanaDetector),
-                Box::new(ElasticsearchDetector),
-                Box::new(GraphQLDetector),
+                // TODO: Implement these detectors
+                // Box::new(HTTPDetector),
+                // Box::new(DockerRegistryDetector),
+                // Box::new(PrometheusDetector),
+                // Box::new(GrafanaDetector),
+                // Box::new(ElasticsearchDetector),
+                // Box::new(GraphQLDetector),
             ],
             system_detectors: vec![
-                Box::new(DNSDetector),
-                Box::new(LDAPDetector),
-                Box::new(SMTPDetector),
-                Box::new(VNCDetector),
-                Box::new(RDPDetector),
-                Box::new(MemcachedDetector),
+                // TODO: Implement these detectors
+                // Box::new(DNSDetector),
+                // Box::new(LDAPDetector),
+                // Box::new(SMTPDetector),
+                // Box::new(VNCDetector),
+                // Box::new(RDPDetector),
+                // Box::new(MemcachedDetector),
             ],
             development_detectors: vec![
-                Box::new(CassandraDetector),
-                Box::new(GitDetector),
-                Box::new(SyntctingDetector),
-                Box::new(JenkinsDetector),
-                Box::new(BitTorrentDetector),
-                Box::new(IRCDetector),
+                // TODO: Implement these detectors
+                // Box::new(CassandraDetector),
+                // Box::new(GitDetector),
+                // Box::new(SyntctingDetector),
+                // Box::new(JenkinsDetector),
+                // Box::new(BitTorrentDetector),
+                // Box::new(IRCDetector),
             ],
         };
         classifier.load_response_patterns();

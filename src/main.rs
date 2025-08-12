@@ -23,9 +23,9 @@ async fn main() -> Result<()> {
     // No legal BS, just pure scanning action! 🔥
     
     let mut scanner = Scanner::new(
-        cli.rate_limit.unwrap_or(0), // 0 = ML optimized
-        cli.timeout.unwrap_or(0),    // 0 = ML adaptive
-        cli.parallel_hosts.unwrap_or(0), // 0 = ML optimized
+        cli.rate_limit.unwrap_or(10), // 10ms rate limit for responsiveness
+        cli.timeout.unwrap_or(3000),  // 3 second timeout default
+        cli.parallel_hosts.unwrap_or(50), // 50 parallel connections
     );
     
     let output_writer = OutputWriter::new(cli.output_format, cli.output_file)?;
@@ -47,7 +47,7 @@ async fn main() -> Result<()> {
                 ports.join(",")
             }
         },
-        None => "1-65535".to_string(), // Default: scan all ports
+        None => "1-1000".to_string(), // Default: scan common ports
     };
     let results = scanner.scan(
         &target_spec,

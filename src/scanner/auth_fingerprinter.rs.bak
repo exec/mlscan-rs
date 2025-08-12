@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use std::time::{Duration, SystemTime};
 use smartcore::linalg::basic::matrix::DenseMatrix;
 use smartcore::cluster::{kmeans::KMeans, dbscan::DBSCAN};
-use smartcore::preprocessing::StandardScaler;
+use smartcore::preprocessing::numerical::StandardScaler;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

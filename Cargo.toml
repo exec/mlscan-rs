@@ -33,6 +33,7 @@ base64 = "0.21"
 statrs = "0.17"
 smartcore = "0.3"
 ndarray = "0.15"
+lazy_static = "1.4"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
